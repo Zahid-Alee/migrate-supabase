@@ -1,0 +1,49 @@
+version: '3'
+services:
+  discover:
+    build: .
+    container_name: discover-files
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - BUNNY_API_KEY=${BUNNY_API_KEY}
+    command: ["node", "discover-files.js"]
+    volumes:
+      - .:/usr/src/app
+    restart: always
+
+  migrate_worker_1:
+    build: .
+    container_name: migrate-worker-1
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - BUNNY_API_KEY=${BUNNY_API_KEY}
+    command: ["node", "migrate-files.js"]
+    volumes:
+      - .:/usr/src/app
+    restart: always
+
+  migrate_worker_2:
+    build: .
+    container_name: migrate-worker-2
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - BUNNY_API_KEY=${BUNNY_API_KEY}
+    command: ["node", "migrate-files.js"]
+    volumes:
+      - .:/usr/src/app
+    restart: always
+
+  migrate_worker_3:
+    build: .
+    container_name: migrate-worker-3
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - BUNNY_API_KEY=${BUNNY_API_KEY}
+    command: ["node", "migrate-files.js"]
+    volumes:
+      - .:/usr/src/app
+    restart: always

@@ -1,0 +1,20 @@
+{
+  "name": "bunny-to-supabase-migrator",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "discover": "node discover-files.js",
+    "migrate": "node migrate-files.js",
+    "control": "node control.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "axios": "^1.7.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "os": "^0.1.2",
+    "p-limit": "^3.1.0",
+    "uuid": "^9.0.1"
+  }
+}

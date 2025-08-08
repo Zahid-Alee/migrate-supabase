@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bunny → Supabase Migration Control</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React + ReactDOM (CDN) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <style>
+    /* Note: @apply requires Tailwind build step. If you're opening this file directly,
+       consider replacing these with plain CSS classes if styling doesn't apply. */
+    .card { @apply bg-white rounded-2xl shadow p-5; }
+    .muted { @apply text-gray-500; }
+    .badge { @apply rounded-full text-xs px-2 py-0.5 font-medium; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+  <div id="root" class="max-w-7xl mx-auto p-6"></div>
+
+  <script type="text/javascript">
+    const { useState, useEffect, useMemo, useRef } = React;
+
+    function cx(...arr){return arr.filter(Boolean).join(' ')}
+
+    function Button({ children, onClick, intent='default', size='md', disabled }){
+      const base = 'rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed';
+      const sizes = { sm: 'px-2 py-1 text-sm', md: 'px-3 py-2 text-sm', lg: 'px-4 py-3' };
+      const intents = {
+        default: 'bg-gray-900 text-white hover:bg-black',
+        ghost: 'bg-white border border-gray-300 text-gray-800 hover:bg-gray-100',
+        danger: 'bg-red-600 text-white hover:bg-red-700',
+        warn: 'bg-amber-500 text-white hover:bg-amber-600',
+        success: 'bg-emerald-600 text-white hover:bg-emerald-700'
+      };
+      return React.createElement('button', { className: cx(base, sizes[size], intents[intent]), onClick, disabled }, children);
+    }
+
+    function TextInput({ label, value, onChange, placeholder, right, type='text' }){
+      return React.createElement('label', { className: 'block' },
+        React.createElement('div', { className: 'text-sm mb-1 muted' }, label),
+        React.createElement('div', { className: 'relative' },
+          React.createElement('input', { className: 'w-full rounded-xl border border-gray-300 bg-white px-3 py-2 pr-10 outline-none focus:ring-2 focus:ring-black/5', value, onChange: e=>onChange(type==='number'? Number(e.target.value): e.target.value), placeholder, type }),
+          right ? React.createElement('div', { className: 'absolute right-2 top-1/2 -translate-y-1/2' }, right) : null
+        )
+      );
+    }
+
+    function Stat({ label, value, subtitle }){
+      return React.createElement('div', { className: 'card flex-1' },
+        React.createElement('div', { className: 'text-sm muted' }, label),
+        React.createElement('div', { className: 'mt-1 text-3xl font-semibold tracking-tight' }, value ?? '—'),
+        subtitle ? React.createElement('div', { className: 'text-xs mt-1 muted' }, subtitle) : null
+      );
+    }
+
+    function Section({ title, actions, children }){
+      return React.createElement('section', { className: 'mb-6' },
+        React.createElement('div', { className: 'flex items-center justify-between mb-3' },
+          React.createElement('h2', { className: 'text-lg font-semibold' }, title),
+          actions ? React.createElement('div', null, actions) : null
+        ),
+        React.createElement('div', { className: 'grid gap-4' }, children)
+      );
+    }
+
+    function fetchJSON(url, opts){
+      return fetch(url, opts).then(async r=>{ const data = await r.json().catch(()=>({})); if(!r.ok) throw new Error(data?.error || r.statusText); return data; });
+    }
+
+    function useInterval(cb, delay){
+      const ref = useRef();
+      useEffect(()=>{ ref.current = cb; }, [cb]);
+      useEffect(()=>{ if(delay==null) return; const id=setInterval(()=>ref.current && ref.current(), delay); return ()=>clearInterval(id); }, [delay]);
+    }
+
+    function ProgressBar({ migrated, failed, total }){
+      const done = (migrated||0) + (failed||0);
+      const pct = total ? Math.min(100, Math.round(done/total*100)) : 0;
+      return React.createElement('div', { className: 'card' },
+        React.createElement('div', { className: 'flex items-center justify-between mb-2' },
+          React.createElement('div', { className: 'text-sm muted' }, 'Overall Progress'),
+          React.createElement('div', { className: 'text-sm font-medium' }, `${pct}%`)
+        ),
+        React.createElement('div', { className: 'w-full h-4 bg-gray-200 rounded-full overflow-hidden' },
+          React.createElement('div', { className: 'h-full bg-gray-900', style: { width: pct + '%' } })
+        ),
+        React.createElement('div', { className: 'mt-2 text-xs muted flex gap-4' },
+          React.createElement('span', null, `Migrated: ${migrated||0}`),
+          React.createElement('span', null, `Failed: ${failed||0}`),
+          React.createElement('span', null, `Total: ${total||0}`)
+        )
+      );
+    }
+
+    function Badge({ children, tone='gray' }){
+      const map = {
+        gray:'bg-gray-100 text-gray-700',
+        green:'bg-emerald-100 text-emerald-700',
+        red:'bg-red-100 text-red-700',
+        amber:'bg-amber-100 text-amber-800',
+        blue:'bg-blue-100 text-blue-700'
+      };
+      return React.createElement('span', { className: cx('badge', map[tone]) }, children);
+    }
+
+    function DataTable({ cols, rows, keyField='id' }){
+      return React.createElement('div', { className: 'card overflow-auto' },
+        React.createElement('table', { className: 'min-w-full text-sm' },
+          React.createElement('thead', { className: 'text-left text-xs uppercase tracking-wide text-gray-500' },
+            React.createElement('tr', null, cols.map((c,i)=>React.createElement('th', { key:i, className:'py-2 pr-4' }, c.label)))
+          ),
+          React.createElement('tbody', null,
+            (rows||[]).map((r,i)=>React.createElement('tr', { key: r[keyField] || i, className: cx(i%2?'bg-gray-50':'bg-white') },
+              cols.map((c,ci)=>React.createElement('td', { key:ci, className:'py-2 pr-4 align-top' }, c.render? c.render(r[c.field], r): r[c.field]))
+            ))
+          )
+        )
+      );
+    }
+
+    function App(){
+      const [apiBase, setApiBase] = useState(localStorage.getItem('apiBase') || 'http://localhost:4000');
+      const [jobId, setJobId] = useState(localStorage.getItem('jobId') || '');
+      const [jobs, setJobs] = useState([]);
+      const [progress, setProgress] = useState(null);
+      const [pollMs, setPollMs] = useState(30000);
+      const [busy, setBusy] = useState(false);
+
+      // tables
+      const [logs, setLogs] = useState([]);
+      const [logLimit, setLogLimit] = useState(100);
+      const [logStatus, setLogStatus] = useState(''); // '', success, failed
+
+      const [files, setFiles] = useState([]);
+      const [fileLimit, setFileLimit] = useState(100);
+      const [fileStatus, setFileStatus] = useState(''); // '', pending, in_progress, migrated, failed
+      const [fileSearch, setFileSearch] = useState('');
+
+      useEffect(()=>{ localStorage.setItem('apiBase', apiBase); }, [apiBase]);
+      useEffect(()=>{ localStorage.setItem('jobId', jobId); }, [jobId]);
+
+      const canQuery = useMemo(()=> apiBase && jobId, [apiBase, jobId]);
+
+      async function loadJobs(){
+        try{ const data = await fetchJSON(`${apiBase}/jobs`); setJobs(data); }catch(e){ console.warn(e.message); }
+      }
+
+      async function loadProgress(){
+        if(!canQuery) return; try{ const data = await fetchJSON(`${apiBase}/progress/${jobId}`); setProgress(data);}catch(e){ console.warn(e.message); }
+      }
+
+      async function loadLogs(){
+        if(!canQuery) return; try{
+          const url = new URL(`${apiBase}/logs`);
+          url.searchParams.set('jobId', jobId);
+          if(logStatus) url.searchParams.set('status', logStatus);
+          url.searchParams.set('limit', logLimit);
+          const data = await fetchJSON(url);
+          setLogs(data);
+        }catch(e){ console.warn(e.message); }
+      }
+
+      async function loadFiles(){
+        try{
+          const url = new URL(`${apiBase}/files`);
+          if(fileStatus) url.searchParams.set('status', fileStatus);
+          if(fileSearch) url.searchParams.set('q', fileSearch);
+          url.searchParams.set('limit', fileLimit);
+          const data = await fetchJSON(url);
+          setFiles(data);
+        }catch(e){ console.warn(e.message); }
+      }
+
+      useEffect(()=>{ loadJobs(); }, [apiBase]);
+      useInterval(loadProgress, canQuery ? pollMs : null);
+      useInterval(loadLogs, canQuery ? pollMs : null);
+      useInterval(loadFiles, pollMs);
+
+      async function setStatus(status){
+        if(!jobId) return alert('Enter a Job ID');
+        setBusy(true);
+        try{
+          await fetchJSON(`${apiBase}/jobs/${jobId}/status`,{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status})});
+          await loadProgress();
+        }catch(e){ alert(e.message); } finally{ setBusy(false); }
+      }
+
+      async function retryFile(id){
+        try{ await fetchJSON(`${apiBase}/files/${id}/retry`, { method:'POST' }); await loadFiles(); }catch(e){ alert(e.message); }
+      }
+
+      const jobCards = jobs.map(j=>React.createElement('div', { key:j.id, className:'card' },
+        React.createElement('div', { className:'flex items-center justify-between' },
+          React.createElement('div', null,
+            React.createElement('div', { className:'font-semibold' }, j.kind.toUpperCase()),
+            React.createElement('div', { className:'text-xs muted' }, j.id)
+          ),
+          React.createElement(Badge, { tone: j.status==='running'?'green': j.status==='paused'?'amber': j.status==='stopped'?'red':'blue' }, j.status)
+        ),
+        React.createElement('div', { className:'mt-2 text-xs muted' }, new Date(j.created_at).toLocaleString())
+      ));
+
+      const logCols = [
+        { label:'Time', field:'upload_time', render:(v)=> new Date(v).toLocaleString() },
+        { label:'Status', field:'status', render:(v)=> React.createElement(Badge,{tone: v==='success'?'green': v==='failed'?'red':'blue'}, v) },
+        { label:'Attempts', field:'attempts' },
+        { label:'Path', field:'bunny_path' },
+        { label:'Supabase Path', field:'supabase_path' },
+        { label:'Time Taken', field:'time_taken', render:(v)=> (v? (v/1000).toFixed(2)+'s' : '—') },
+        { label:'Error', field:'error_msg' }
+      ];
+
+      // FIX: define fileCols (previously a stray "$1" caused ReferenceError)
+      const fileCols = [
+        { label:'Path', field:'path' },
+        { label:'Size', field:'size', render:(v)=> v?.toLocaleString?.() || '—' },
+        { label:'Status', field:'status', render:(v)=> React.createElement(Badge,{tone: v==='migrated'?'green': v==='failed'?'red': v==='in_progress'?'blue': v==='scanned'?'blue':'gray'}, v) },
+        { label:'Updated', field:'updated_at', render:(v)=> v? new Date(v).toLocaleString(): '—' },
+        { label:'Actions', field:'id', render:(_,r)=> (r.status==='failed' || r.status==='pending') ? React.createElement(Button,{size:'sm', onClick:()=>retryFile(r.id)},'Retry') : null }
+      ];
+
+      async function setJobStatus(id, status){
+        try{
+          await fetchJSON(`${apiBase}/jobs/${id}/status`,{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status})});
+          await loadJobs();
+          if(jobId===id) await loadProgress();
+        }catch(e){ alert(e.message); }
+      }
+
+      const jobCols = [
+        { label:'Created', field:'created_at', render:(v)=> new Date(v).toLocaleString() },
+        { label:'Kind', field:'kind' },
+        { label:'Status', field:'status', render:(v)=> React.createElement(Badge,{tone: v==='running'?'green': v==='paused'?'amber': v==='stopped'?'red':'blue'}, v) },
+        { label:'Job ID', field:'id', render:(v)=> React.createElement('button',{className:'underline text-xs', onClick:()=>setJobId(v)}, v) },
+        { label:'Heartbeat', field:'last_heartbeat', render:(v)=> v? new Date(v).toLocaleString(): '—' },
+        { label:'Actions', field:'id', render:(v)=> React.createElement('div',{className:'flex gap-2'},
+            React.createElement(Button,{size:'sm', onClick:()=>setJobStatus(v,'running')}, 'Resume'),
+            React.createElement(Button,{size:'sm', intent:'warn', onClick:()=>setJobStatus(v,'paused')}, 'Pause'),
+            React.createElement(Button,{size:'sm', intent:'danger', onClick:()=>setJobStatus(v,'stopped')}, 'Stop')
+          )
+        }
+      ];
+
+      return React.createElement('div', { className:'space-y-6' },
+        React.createElement('header', { className:'flex flex-col gap-3 md:flex-row md:items-end md:justify-between' },
+          React.createElement('div', null,
+            React.createElement('h1', { className:'text-2xl font-bold' }, 'Migration Dashboard'),
+            React.createElement('p', { className:'muted text-sm' }, 'Monitor discovery & migration runs. Control workers and inspect files/logs.')
+          ),
+          React.createElement('div', { className:'flex gap-3 items-end' },
+            React.createElement(TextInput, { label:'API Base', value:apiBase, onChange:setApiBase, placeholder:'http://localhost:4000' }),
+            React.createElement(TextInput, { label:'Job ID', value:jobId, onChange:setJobId, placeholder:'paste job id' }),
+            React.createElement(TextInput, { label:'Poll (ms)', type:'number', value:pollMs, onChange:setPollMs }),
+            React.createElement(Button, { intent:'ghost', onClick:()=>{loadJobs(); loadProgress(); loadLogs(); loadFiles();} }, 'Refresh All')
+          )
+        ),
+
+        React.createElement(Section, { title:'Overview' },
+          React.createElement('div', { className:'grid grid-cols-1 md:grid-cols-4 gap-4' },
+            React.createElement(Stat, { label:'Total Files', value:progress?.total_files }),
+            React.createElement(Stat, { label:'Total Bytes', value:progress?.total_bytes?.toLocaleString?.() }),
+            React.createElement(Stat, { label:'Migrated', value:progress?.migrated_files }),
+            React.createElement(Stat, { label:'Failed', value:progress?.failed_files })
+          ),
+          React.createElement(ProgressBar, { migrated:progress?.migrated_files, failed:progress?.failed_files, total:progress?.total_files })
+        ),
+
+        React.createElement(Section, { title:'Running Jobs', actions: React.createElement('div', { className:'flex gap-2' }, jobCards) }),
+
+        React.createElement(Section, { title:'Controls' },
+          React.createElement('div', { className:'card flex flex-wrap gap-2 items-end' },
+            React.createElement(Button, { onClick:()=>setStatus('running'), disabled:busy }, 'Resume'),
+            React.createElement(Button, { onClick:()=>setStatus('paused'), intent:'warn', disabled:busy }, 'Pause'),
+            React.createElement(Button, { onClick:()=>setStatus('stopped'), intent:'danger', disabled:busy }, 'Stop'),
+            React.createElement('div', { className:'w-px bg-gray-200 h-8 mx-2' }),
+            React.createElement(TextInput, { label:'Filter Files (status)', value:fileStatus, onChange:setFileStatus, placeholder:'pending | in_progress | migrated | failed' }),
+            React.createElement(TextInput, { label:'Search Path', value:fileSearch, onChange:setFileSearch, placeholder:'/videos/2021' }),
+            React.createElement(TextInput, { label:'File Limit', type:'number', value:fileLimit, onChange:setFileLimit }),
+            React.createElement(Button, { intent:'ghost', onClick:loadFiles }, 'Load Files')
+          )
+        ),
+
+        React.createElement(Section, { title:'Jobs' },
+          React.createElement(DataTable, { cols: jobCols, rows: jobs })
+        ),
+
+        React.createElement(Section, { title:'Recent Transfers (Logs)' , actions: (
+          React.createElement('div', { className:'flex items-end gap-2' },
+            React.createElement(TextInput, { label:'Status', value:logStatus, onChange:setLogStatus, placeholder:'success | failed' }),
+            React.createElement(TextInput, { label:'Limit', type:'number', value:logLimit, onChange:setLogLimit }),
+            React.createElement(Button, { intent:'ghost', onClick:loadLogs }, 'Load Logs')
+          )
+        )},
+          React.createElement(DataTable, { cols: logCols, rows: logs })
+        ),
+
+        React.createElement(Section, { title:'Maintenance' },
+          React.createElement('div', { className:'card flex flex-wrap gap-3 items-end' },
+            React.createElement(TextInput, { label:'Reclaim Dirs (minutes)', type:'number', value:30, onChange:()=>{} }),
+            React.createElement(Button, { intent:'ghost', onClick: async ()=>{
+              try { await fetchJSON(`${apiBase}/reclaim-dirs`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ minutes: 30 }) }); alert('Reclaim triggered'); }
+              catch(e){ alert(e.message); }
+            } }, 'Reclaim Dirs')
+          )
+        ),
+
+        React.createElement(Section, { title:'Files' },
+          React.createElement(DataTable, { cols: fileCols, rows: files })
+        )
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+  </script>
+</body>
+</html>
